@@ -1,0 +1,274 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useDashboard } from "@/components/dashboard";
+import { getDashboardData, type DashboardData, type ParticipantDashboardData } from "@/lib/api/enterprise-analytics";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  CheckSquare,
+  Clock,
+  AlertCircle,
+  Search,
+  ArrowUpRight,
+} from "lucide-react";
+import { format } from "date-fns";
+
+export default function EnterpriseTasksPage() {
+  const router = useRouter();
+  const { user } = useDashboard();
+  const [dashboardData, setDashboardData] = useState<DashboardData | ParticipantDashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("all");
+
+  const canManageTasks = user?.enterprise?.role === "ADMIN" || user?.enterprise?.role === "ORGANIZER";
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      setIsLoading(true);
+      try {
+        const response = await getDashboardData();
+        setDashboardData(response.data);
+      } catch (err) {
+        console.error("Failed to fetch tasks:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTasks();
+  }, []);
+
+  const tasks = dashboardData?.assignedTasks || [];
+
+  const getStatusBadgeStyle = (status: string) => {
+    switch (status) {
+      case 'COMPLETED':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+      case 'IN_PROGRESS':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'SUBMITTED':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
+    }
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase());
+    if (activeTab === "all") return matchesSearch;
+    if (activeTab === "pending") return matchesSearch && task.status === "PENDING";
+    if (activeTab === "in_progress") return matchesSearch && task.status === "IN_PROGRESS";
+    if (activeTab === "completed") return matchesSearch && task.status === "COMPLETED";
+    if (activeTab === "overdue") return matchesSearch && task.isOverdue;
+    return matchesSearch;
+  });
+
+  const stats = {
+    total: tasks.length,
+    pending: tasks.filter(t => t.status === "PENDING").length,
+    inProgress: tasks.filter(t => t.status === "IN_PROGRESS").length,
+    completed: tasks.filter(t => t.status === "COMPLETED").length,
+    overdue: tasks.filter(t => t.isOverdue).length,
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold">Tasks</h1>
+        <p className="text-muted-foreground">
+          {canManageTasks ? "Manage and track organization tasks" : "View and complete your assigned tasks"}
+        </p>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        {isLoading ? (
+          [1, 2, 3, 4, 5].map((i) => (
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <Skeleton className="h-4 w-20 mb-2" />
+                <Skeleton className="h-8 w-16" />
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total</p>
+                    <p className="text-2xl font-bold">{stats.total}</p>
+                  </div>
+                  <CheckSquare className="h-5 w-5 text-primary" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Pending</p>
+                    <p className="text-2xl font-bold">{stats.pending}</p>
+                  </div>
+                  <Clock className="h-5 w-5 text-yellow-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">In Progress</p>
+                    <p className="text-2xl font-bold">{stats.inProgress}</p>
+                  </div>
+                  <ArrowUpRight className="h-5 w-5 text-blue-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Completed</p>
+                    <p className="text-2xl font-bold">{stats.completed}</p>
+                  </div>
+                  <CheckSquare className="h-5 w-5 text-green-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Overdue</p>
+                    <p className="text-2xl font-bold">{stats.overdue}</p>
+                  </div>
+                  <AlertCircle className="h-5 w-5 text-red-500" />
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>{canManageTasks ? "All Tasks" : "My Tasks"}</CardTitle>
+              <CardDescription>Tasks from organization meetings</CardDescription>
+            </div>
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-4">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="pending">Pending</TabsTrigger>
+              <TabsTrigger value="in_progress">In Progress</TabsTrigger>
+              <TabsTrigger value="completed">Completed</TabsTrigger>
+              <TabsTrigger value="overdue">Overdue</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={activeTab}>
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-center gap-4 p-4 border rounded-lg">
+                      <Skeleton className="h-8 w-8 rounded" />
+                      <div className="flex-1">
+                        <Skeleton className="h-4 w-48 mb-2" />
+                        <Skeleton className="h-3 w-32" />
+                      </div>
+                      <Skeleton className="h-6 w-20" />
+                    </div>
+                  ))}
+                </div>
+              ) : filteredTasks.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <CheckSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No tasks found</p>
+                  <p className="text-sm">
+                    {searchQuery ? "Try adjusting your search" : "No tasks have been assigned yet"}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className={`flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer ${
+                        task.isOverdue ? 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-900/10' : ''
+                      }`}
+                      onClick={() => router.push(`/meeting/${task.meetingId}`)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                          task.isOverdue ? 'bg-red-100 dark:bg-red-900/30' :
+                          task.status === 'COMPLETED' ? 'bg-green-100 dark:bg-green-900/30' :
+                          task.status === 'IN_PROGRESS' ? 'bg-blue-100 dark:bg-blue-900/30' :
+                          'bg-gray-100 dark:bg-gray-800'
+                        }`}>
+                          {task.isOverdue ? (
+                            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                          ) : (
+                            <CheckSquare className={`h-5 w-5 ${
+                              task.status === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
+                              task.status === 'IN_PROGRESS' ? 'text-blue-600 dark:text-blue-400' :
+                              'text-gray-600 dark:text-gray-400'
+                            }`} />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="font-medium">{task.title}</h4>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span>{task.meetingTitle}</span>
+                            {task.dueDate && (
+                              <>
+                                <span>•</span>
+                                <span className={task.isOverdue ? 'text-red-500' : ''}>
+                                  Due {format(new Date(task.dueDate), 'MMM d, yyyy')}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {task.priority && (
+                          <Badge variant="outline" className="capitalize">
+                            {task.priority.toLowerCase()}
+                          </Badge>
+                        )}
+                        <Badge className={getStatusBadgeStyle(task.status)}>
+                          {task.status.replace('_', ' ')}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
