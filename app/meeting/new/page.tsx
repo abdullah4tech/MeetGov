@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { getGuestToken, getWorkflowId, ensureGuestSession } from "@/lib/api/guest-session"
@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { format } from "date-fns"
 import { useToast } from "@/components/ui/use-toast"
 
-export default function NewMeeting() {
+function NewMeetingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
@@ -88,7 +88,7 @@ export default function NewMeeting() {
       setMeeting(data)
       
       // Display a toast notification based on meeting status
-      if (data.status === 'PENDING') {
+      if (data.status === 'WAITING') {
         toast({
           title: "Meeting is pending",
           description: "This meeting hasn't started yet."
@@ -227,5 +227,20 @@ export default function NewMeeting() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function NewMeeting() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-t-primary border-opacity-20 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-lg text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    }>
+      <NewMeetingContent />
+    </Suspense>
   )
 }

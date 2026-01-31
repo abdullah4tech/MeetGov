@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,7 +42,7 @@ type EditingState = {
   [artifactId: string]: string;
 };
 
-export default function ResultsRoomPage() {
+function ResultsRoomContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -683,5 +683,20 @@ export default function ResultsRoomPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function ResultsRoomPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-muted-foreground">Loading results...</p>
+        </div>
+      </div>
+    }>
+      <ResultsRoomContent />
+    </Suspense>
   );
 }

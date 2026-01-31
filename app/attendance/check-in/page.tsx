@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 
 type CheckInState = "idle" | "loading" | "success" | "error";
 
-export default function CheckInPage() {
+function CheckInContent() {
   const searchParams = useSearchParams();
   // Support both ?meeting= and ?meetingId= parameters
   const meetingId = searchParams.get("meetingId") || searchParams.get("meeting");
@@ -239,5 +239,21 @@ export default function CheckInPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function CheckInPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/20 p-4">
+        <Card className="max-w-sm w-full">
+          <CardContent className="pt-8 pb-8 text-center">
+            <div className="w-8 h-8 border-4 border-t-primary border-primary/30 rounded-full animate-spin mx-auto" />
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <CheckInContent />
+    </Suspense>
   );
 }
