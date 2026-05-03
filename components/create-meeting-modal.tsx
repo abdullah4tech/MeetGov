@@ -43,7 +43,6 @@ import {
   type MeetingDetail,
   type InviteResult,
 } from "@/lib/api/personal-meeting";
-import { api } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 
 type MeetingType = "instant" | "scheduled";
@@ -210,51 +209,77 @@ export function CreateMeetingModal({
 
     setIsAiLoading(true);
     try {
-      const response = await api.post<{ success: boolean; draft: AIDraft }>(
-        "/api/ai/meeting-draft",
-        { input: aiInput }
-      );
+      const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+      if (!apiKey) throw new Error("OpenAI API key not configured");
 
-      if (response.data.success && response.data.draft) {
-        const draft = response.data.draft;
+      const systemPrompt = `You are a meeting scheduling assistant. Extract meeting details from the user's description and return ONLY a valid JSON object with this exact structure:
+{
+  "title": "string — concise meeting title",
+  "meetingType": "INSTANT" or "SCHEDULED",
+  "scheduledAt": "ISO 8601 datetime string, only if SCHEDULED" ,
+  "durationMinutes": number,
+  "participants": [{"name": "string or empty", "email": "string or empty"}],
+  "location": "string or empty"
+}
+Today's date is ${new Date().toISOString()}. Use INSTANT if no specific date/time is mentioned. Duration default is 30 if unspecified.`;
 
-        const newFormData: MeetingFormData = {
-          title: draft.title || "",
-          type: draft.meetingType === "SCHEDULED" ? "scheduled" : "instant",
-          duration: Math.min(draft.durationMinutes || 30, 60),
-          location: draft.location || "",
-          time: "",
-          participants: [],
-        };
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.2,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: aiInput },
+          ],
+          response_format: { type: "json_object" },
+        }),
+      });
 
-        if (draft.scheduledAt && draft.meetingType === "SCHEDULED") {
-          const scheduledDate = new Date(draft.scheduledAt);
-          newFormData.date = scheduledDate;
-          newFormData.time = format(scheduledDate, "HH:mm");
-        }
-
-        if (draft.participants && Array.isArray(draft.participants)) {
-          newFormData.participants = draft.participants
-            .filter((p) => p.email)
-            .map((p) => ({
-              id: generateId(),
-              name: p.name || "",
-              email: p.email || "",
-            }));
-        }
-
-        setFormData(newFormData);
-        setAiInput("");
-        toast({
-          title: "Meeting details generated",
-          description: "Review and edit the details below",
-        });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any)?.error?.message || `OpenAI error ${res.status}`);
       }
-    } catch (error) {
+
+      const json = await res.json();
+      const draft: AIDraft = JSON.parse(json.choices[0].message.content);
+
+      const newFormData: MeetingFormData = {
+        title: draft.title || "",
+        type: draft.meetingType === "SCHEDULED" ? "scheduled" : "instant",
+        duration: Math.min(Math.max(draft.durationMinutes || 30, 15), 60),
+        location: draft.location || "",
+        time: "",
+        participants: [],
+      };
+
+      if (draft.scheduledAt && draft.meetingType === "SCHEDULED") {
+        const scheduledDate = new Date(draft.scheduledAt);
+        newFormData.date = scheduledDate;
+        newFormData.time = format(scheduledDate, "HH:mm");
+      }
+
+      if (draft.participants && Array.isArray(draft.participants)) {
+        newFormData.participants = draft.participants
+          .filter((p) => p.email)
+          .map((p) => ({ id: generateId(), name: p.name || "", email: p.email || "" }));
+      }
+
+      setFormData(newFormData);
+      setAiInput("");
+      toast({
+        title: "Meeting details generated ✨",
+        description: "Review and edit the details below",
+      });
+    } catch (error: any) {
       console.error("AI generation error:", error);
       toast({
         title: "AI generation failed",
-        description: "Please try again or enter details manually",
+        description: error.message || "Please try again or enter details manually",
         variant: "destructive",
       });
     } finally {
