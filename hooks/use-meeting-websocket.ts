@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { getWorkflowId } from '@/lib/api/guest-session';
-import { useSession } from '@/lib/auth-client';
+import { useAuth } from '@clerk/nextjs';
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
 const WS_PATH = '/api/v1/ws';
@@ -154,9 +154,8 @@ export function useMeetingWebSocket({
   const onAllArtifactsCompletedRef = useRef(onAllArtifactsCompleted);
   onAllArtifactsCompletedRef.current = onAllArtifactsCompleted;
 
-  // Get authenticated user session
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  // Get Clerk auth for WebSocket authentication
+  const { userId, getToken } = useAuth();
 
   const connect = useCallback(() => {
     if (!enabled || !meetingId) return;
@@ -190,20 +189,27 @@ export function useMeetingWebSocket({
 
         // Authenticate with appropriate identity
         // Guest flow: use workflowId
-        // Authenticated flow: use userId
+        // Authenticated flow: use Clerk JWT token
         const authMessage: Record<string, string | undefined> = {
           type: 'authenticate',
         };
-        
+
         if (workflowId) {
           authMessage.workflowId = workflowId;
           authMessage.token = workflowId;
         }
-        
+
         if (userId) {
           authMessage.userId = userId;
+          // Get Clerk JWT and attach as token
+          getToken().then((token) => {
+            if (token) authMessage.token = token;
+            console.log('[WS] Authenticating with:', { workflowId: !!workflowId, userId: !!userId });
+            ws.send(JSON.stringify(authMessage));
+          });
+          return; // Wait for async token
         }
-        
+
         console.log('[WS] Authenticating with:', { workflowId: !!workflowId, userId: !!userId });
         ws.send(JSON.stringify(authMessage));
       };

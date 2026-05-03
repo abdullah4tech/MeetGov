@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "@/lib/auth-client";
+import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,7 @@ type MeetingDetails = {
 export default function CreateMeetingPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { data: session, isPending: isSessionLoading } = useSession();
+  const { user, isLoaded } = useUser();
   
   const [mode, setMode] = useState<CreateMode>("ai");
   const [activeCard, setActiveCard] = useState<number>(1);
@@ -88,10 +88,10 @@ export default function CreateMeetingPage() {
 
   // Redirect if not authenticated
   useEffect(() => {
-    if (!isSessionLoading && !session?.user) {
+    if (isLoaded && !user) {
       router.push("/auth/signin");
     }
-  }, [session, isSessionLoading, router]);
+  }, [user, isLoaded, router]);
 
   // Verify WebSocket connection for AI mode
   useEffect(() => {
@@ -266,7 +266,7 @@ export default function CreateMeetingPage() {
     return meetingDetails.participants.join(", ");
   };
 
-  if (isSessionLoading) {
+  if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

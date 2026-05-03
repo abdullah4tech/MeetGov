@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "@/lib/auth-client";
+import { useUser } from "@clerk/nextjs";
 import { acceptInvite } from "@/lib/api/enterprise";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 function AcceptInviteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session, isPending: isSessionLoading } = useSession();
+  const { user, isLoaded } = useUser();
   const [status, setStatus] = useState<"loading" | "success" | "error" | "auth_required">("loading");
   const [error, setError] = useState<string | null>(null);
   const [enterpriseName, setEnterpriseName] = useState<string | null>(null);
@@ -27,8 +27,8 @@ function AcceptInviteContent() {
         return;
       }
 
-      if (!session?.user) {
-        if (!isSessionLoading) {
+      if (!user) {
+        if (isLoaded) {
           setStatus("auth_required");
         }
         return;
@@ -50,10 +50,10 @@ function AcceptInviteContent() {
       }
     };
 
-    if (!isSessionLoading) {
+    if (isLoaded) {
       handleAcceptInvite();
     }
-  }, [token, session, isSessionLoading, router]);
+  }, [token, user, isLoaded, router]);
 
   const handleSignIn = () => {
     // Redirect to sign in, then come back here
@@ -61,7 +61,7 @@ function AcceptInviteContent() {
     router.push(`/auth/signin?type=enterprise&callback=${callbackUrl}`);
   };
 
-  if (isSessionLoading || status === "loading") {
+  if (!isLoaded || status === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <div className="flex flex-col items-center gap-4">

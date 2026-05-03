@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { useUser, UserButton } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog"
 import { Mic, Users, Sparkles, CheckCircle, LogIn } from "lucide-react"
@@ -10,37 +11,28 @@ import { JoinMeetingWidget } from "@/components/join-meeting-widget"
 
 export default function Home() {
   const router = useRouter()
+  const { user, isLoaded } = useUser()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  // Start guest workflow when user clicks "Create a Meeting"
+  // Start meeting creation — skip guest workflow for signed-in users
   const handleCreateMeeting = async () => {
+    // Authenticated users go straight to their meeting creation page
+    if (user) {
+      router.push('/dashboard/create-meeting')
+      return
+    }
+
+    // Guest flow
     setIsLoading(true)
     setError(null)
-    
     try {
       const { data, error } = await initGuestWorkflow()
-      
-      if (error || !data) {
-        setError('Something went wrong. Please try again.')
-        return
-      }
-      
-      // Always proceed regardless of workflowAllowed status
-      // Only store token if it exists
-      if ('guestSessionToken' in data && data.guestSessionToken) {
-        storeGuestToken(data.guestSessionToken);
-      }
-      
-      // Only store workflowId if it exists
-      if ('workflowId' in data && data.workflowId) {
-        storeWorkflowId(data.workflowId);
-      }
-      
-      // Navigate to meeting creation screen
+      if (error || !data) { setError('Something went wrong. Please try again.'); return }
+      if ('guestSessionToken' in data && data.guestSessionToken) storeGuestToken(data.guestSessionToken)
+      if ('workflowId' in data && data.workflowId) storeWorkflowId(data.workflowId)
       router.push('/create-meeting')
-    } catch (err) {
-      console.error('Error starting guest workflow:', err)
+    } catch {
       setError('Something went wrong. Please try again.')
     } finally {
       setIsLoading(false)
@@ -49,17 +41,29 @@ export default function Home() {
   return (
     <main className="min-h-screen flex flex-col">
       {/* Header with Sign In */}
-      <header className="absolute top-0 right-0 p-4 md:p-6 z-10" role="banner">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-2"
-          onClick={() => router.push("/auth/signin")}
-          aria-label="Sign in to your account"
-        >
-          <LogIn className="h-4 w-4" aria-hidden="true" />
-          Sign In
-        </Button>
+      <header className="absolute top-0 right-0 p-4 md:p-6 z-10 flex items-center" role="banner">
+        {isLoaded && user ? (
+          // Signed in — show Clerk avatar with built-in sign-out / profile dropdown
+          <UserButton
+            afterSignOutUrl="/"
+            appearance={{
+              elements: {
+                avatarBox: "h-9 w-9",
+              },
+            }}
+          />
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={() => router.push("/auth/signin")}
+            aria-label="Sign in to your account"
+          >
+            <LogIn className="h-4 w-4" aria-hidden="true" />
+            Sign In
+          </Button>
+        )}
       </header>
 
       {/* Hero Section */}

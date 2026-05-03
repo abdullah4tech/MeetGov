@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "@/lib/auth-client";
+import { useClerk } from "@clerk/nextjs";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar, type SidebarUser } from "./app-sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -37,6 +37,8 @@ export function DashboardLayout({
   notifications,
 }: DashboardLayoutProps) {
   const router = useRouter();
+
+  const { signOut } = useClerk();
 
   const handleSignOut = async () => {
     await signOut();

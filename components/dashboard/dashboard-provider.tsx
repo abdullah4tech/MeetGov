@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "@/lib/auth-client";
+import { useUser } from "@clerk/nextjs";
 import { getCurrentUser, type UserInfo } from "@/lib/api/user";
 import { useDashboardNotifications } from "@/hooks/use-dashboard-notifications";
 import { DashboardLayout } from "./dashboard-layout";
@@ -39,7 +39,7 @@ export function DashboardProvider({
   allowedRoles,
 }: DashboardProviderProps) {
   const router = useRouter();
-  const { data: session, isPending: isSessionLoading } = useSession();
+  const { user: clerkUser, isLoaded } = useUser();
   const [user, setUser] = React.useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -65,45 +65,50 @@ export function DashboardProvider({
           router.push("/dashboard");
           return;
         }
-
-        // Check role-based access
         if (allowedRoles && !allowedRoles.includes(userInfo.enterprise.role)) {
           router.push("/dashboard/enterprise");
           return;
         }
       } else {
-        // Personal dashboard - redirect enterprise users
         if (userInfo.userType === "enterprise" && userInfo.enterprise) {
           router.push("/dashboard/enterprise");
           return;
         }
       }
     } catch (err) {
-      console.error("Failed to fetch user:", err);
-      router.push("/auth/signin");
+      // Backend unavailable — fall back to Clerk user data so the page still renders.
+      // Don't redirect to sign-in; the user IS authenticated (Clerk confirmed it).
+      console.warn("Backend API unavailable, using Clerk session data as fallback.", err);
+      if (clerkUser) {
+        setUser({
+          id: clerkUser.id,
+          name: clerkUser.fullName ?? clerkUser.username ?? "",
+          email: clerkUser.primaryEmailAddress?.emailAddress ?? "",
+          image: clerkUser.imageUrl ?? null,
+          emailVerified: true,
+          createdAt: new Date().toISOString(),
+          userType: "personal",
+          enterprise: null,
+          needsOnboarding: false,
+        });
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [router, requireEnterprise, allowedRoles]);
+  }, [router, requireEnterprise, allowedRoles, clerkUser]);
 
   React.useEffect(() => {
-    if (!session?.user) {
-      if (!isSessionLoading) {
-        const signInPath = requireEnterprise ? "/auth/signin?type=enterprise" : "/auth/signin";
-        router.push(signInPath);
-      }
-      return;
-    }
-
+    if (!isLoaded) return;
+    if (!clerkUser) return; // Clerk middleware handles redirect
     fetchUser();
-  }, [session, isSessionLoading, router, fetchUser, requireEnterprise]);
+  }, [clerkUser, isLoaded, fetchUser]);
 
   const refreshUser = React.useCallback(async () => {
     await fetchUser();
   }, [fetchUser]);
 
   // Loading state
-  if (isSessionLoading || isLoading) {
+  if (!isLoaded || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

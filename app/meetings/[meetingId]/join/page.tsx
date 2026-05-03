@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSession, signIn } from "@/lib/auth-client";
+import { useUser, useClerk } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,8 @@ export default function ParticipantJoinPage() {
   const router = useRouter();
   const meetingId = params.meetingId as string;
   
-  const { data: session, isPending: isSessionLoading } = useSession();
+  const { user, isLoaded } = useUser();
+  const { openSignIn } = useClerk();
   
   const [pageState, setPageState] = useState<PageState>("loading");
   const [meetingInfo, setMeetingInfo] = useState<MeetingJoinInfo | null>(null);
@@ -71,11 +72,10 @@ export default function ParticipantJoinPage() {
       const info = await fetchMeetingInfo();
       if (!info) return;
 
-      // If still loading session, wait
-      if (isSessionLoading) return;
+      if (!isLoaded) return;
 
       // If not authenticated, show auth screen
-      if (!session?.user) {
+      if (!user) {
         setPageState("unauthenticated");
         return;
       }
@@ -108,7 +108,7 @@ export default function ParticipantJoinPage() {
     };
 
     init();
-  }, [meetingId, session, isSessionLoading, fetchMeetingInfo, fetchParticipantStatus, router]);
+  }, [meetingId, user, isLoaded, fetchMeetingInfo, fetchParticipantStatus, router]);
 
   // Handle check-in
   const handleCheckIn = async () => {
@@ -128,11 +128,10 @@ export default function ParticipantJoinPage() {
     }
   };
 
-  // Handle Google sign-in
+  // Handle Google sign-in via Clerk
   const handleSignIn = () => {
-    signIn.social({
-      provider: "google",
-      callbackURL: `/meetings/${meetingId}/join`,
+    openSignIn({
+      redirectUrl: `/meetings/${meetingId}/join`,
     });
   };
 
@@ -165,7 +164,7 @@ export default function ParticipantJoinPage() {
   };
 
   // Loading state
-  if (pageState === "loading" || isSessionLoading) {
+  if (pageState === "loading" || !isLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -296,14 +295,14 @@ export default function ParticipantJoinPage() {
           )}
 
           {/* User Info */}
-          {session?.user && (
+          {user && (
             <div className="flex items-center gap-3 bg-muted/30 rounded-lg p-3">
               <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
                 <User className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="font-medium">{session.user.name}</p>
-                <p className="text-sm text-muted-foreground">{session.user.email}</p>
+                <p className="font-medium">{user.fullName}</p>
+                <p className="text-sm text-muted-foreground">{user.primaryEmailAddress?.emailAddress}</p>
               </div>
             </div>
           )}
