@@ -6,7 +6,6 @@ import { useUser, UserButton } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog"
 import { Mic, Users, Sparkles, CheckCircle, LogIn } from "lucide-react"
-import { initGuestWorkflow, storeGuestToken, storeWorkflowId } from "@/lib/api/guest-session"
 import { JoinMeetingWidget } from "@/components/join-meeting-widget"
 
 export default function Home() {
@@ -15,28 +14,15 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  // Start meeting creation — skip guest workflow for signed-in users
+  // Start meeting creation
   const handleCreateMeeting = async () => {
-    // Authenticated users go straight to their meeting creation page
+    // Authenticated users go to their full dashboard create page
     if (user) {
       router.push('/dashboard/create-meeting')
       return
     }
-
-    // Guest flow
-    setIsLoading(true)
-    setError(null)
-    try {
-      const { data, error } = await initGuestWorkflow()
-      if (error || !data) { setError('Something went wrong. Please try again.'); return }
-      if ('guestSessionToken' in data && data.guestSessionToken) storeGuestToken(data.guestSessionToken)
-      if ('workflowId' in data && data.workflowId) storeWorkflowId(data.workflowId)
-      router.push('/create-meeting')
-    } catch {
-      setError('Something went wrong. Please try again.')
-    } finally {
-      setIsLoading(false)
-    }
+    // Guests go directly to the create-meeting page — no backend needed
+    router.push('/create-meeting')
   }
   return (
     <main className="min-h-screen flex flex-col">

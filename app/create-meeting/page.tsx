@@ -21,7 +21,6 @@ import {
   formatScheduledDateTime,
   CreateMeetingRequest
 } from "@/lib/api/meeting";
-import { generateMeetingDraft, testConnection, closeConnection } from "@/lib/api/ai-assistant";
 import { useToast } from "@/components/ui/use-toast";
 
 // Local UI types
@@ -66,9 +65,7 @@ export default function CreateMeetingPage() {
   const [aiMessage, setAiMessage] = useState<string>("");
   const [showConfirmation, setShowConfirmation] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string>("");
-  // WebSocket connection status
-  const [wsStatus, setWsStatus] = useState<'unknown' | 'connecting' | 'connected' | 'error'>('unknown');
-  // Always allow creating meetings - limit disabled
+  // Always allow creating meetings
   const [canCreateNewMeeting, setCanCreateNewMeeting] = useState<boolean>(true);
   
   // Meeting details state
@@ -79,86 +76,15 @@ export default function CreateMeetingPage() {
     participants: [],
   });
 
-  // Verify WebSocket connection
-  useEffect(() => {
-    let cancelled = false;
-    
-    const verifyConnection = async () => {
-      try {
-        setWsStatus('connecting');
-        const result = await testConnection();
-        if (!cancelled) {
-          console.log('WebSocket connection test result:', result);
-          setWsStatus('connected');
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('WebSocket connection test failed:', error);
-          setWsStatus('error');
-          setApiError('Cannot connect to AI assistant service. Please try again later or use manual mode.');
-        }
-      }
-    };
-    
-    // Only test when in AI mode
-    if (mode === 'ai') {
-      verifyConnection();
-    }
-    
-    // Cleanup: close connection when switching modes or unmounting
-    return () => {
-      cancelled = true;
-      if (mode === 'ai') {
-        closeConnection();
-      }
-    };
-  }, [mode]);
+  // No WebSocket needed — AI calls go directly to OpenAI
+  const wsStatus = 'connected'; // Always ready
 
-  // Check for guest workflow on mount
+  // Guest session init — no backend needed, just ensure a local workflow ID exists
   useEffect(() => {
-    const initWorkflow = async () => {
-      setIsSessionLoading(true);
-      console.log('Starting workflow initialization');
-      
-      try {
-        // Ensure guest workflow session exists
-        const sessionValid = await ensureGuestSession();
-        console.log('Session valid:', sessionValid);
-        
-        // TEMPORARY: Skip redirect to allow testing
-        if (!sessionValid) {
-          console.warn('Session validation failed, but skipping redirect for testing');
-          // Create a temporary session if needed
-          // Generate a fake workflowId if none exists
-          if (!getWorkflowId()) {
-            console.log('Creating temporary workflowId');
-            storeWorkflowId('temp-' + Date.now());
-          }
-        }
-        
-        // Verify we have a workflowId
-        const workflowId = getWorkflowId();
-        console.log('Current workflowId:', workflowId);
-        
-        if (!workflowId) {
-          console.error('No workflow ID found after session initialization');
-          // TEMPORARY: Skip redirect to allow testing
-          console.warn('No workflowId, but skipping redirect for testing');
-          storeWorkflowId('temp-' + Date.now());
-        }
-        
-        // Meeting limit check disabled
-        setCanCreateNewMeeting(true);
-      } catch (err) {
-        console.error('Workflow initialization error:', err);
-        setApiError('Unable to start guest workflow. Please try again later.');
-      } finally {
-        setIsSessionLoading(false);
-      }
-    };
-    
-    initWorkflow();
-  }, [router, toast]);
+    if (!getWorkflowId()) storeWorkflowId('local-' + Date.now());
+    setCanCreateNewMeeting(true);
+    setIsSessionLoading(false);
+  }, []);
 
   // Handle manual mode form submission
   const handleNextCard = () => {
@@ -178,76 +104,77 @@ export default function CreateMeetingPage() {
     return true;
   };
 
-  // Handle AI assistant input
+  // Handle AI assistant input — calls OpenAI directly, no WebSocket/backend needed
   const handleAiInput = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!aiMessage || !canCreateNewMeeting) return;
-    
-    // Check WebSocket status before proceeding
-    if (wsStatus === 'error') {
-      setApiError('Cannot connect to AI assistant service. Please try again later or use manual mode.');
-      return;
-    }
-    
+
     setIsLoading(true);
     setAiProcessing(true);
     setApiError("");
-    
-    let requestTimeout: NodeJS.Timeout | null = null;
-    
+
     try {
-      // Set a timeout for the WebSocket request
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        requestTimeout = setTimeout(() => {
-          reject(new Error('AI assistant request timed out'));
-        }, 15000); // 15 second timeout
+      const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+      if (!apiKey) throw new Error('OpenAI API key not configured');
+
+      const systemPrompt = `You are a meeting scheduling assistant. Extract meeting details from the user's description and return ONLY a valid JSON object:
+{
+  "title": "concise meeting title",
+  "meetingType": "INSTANT" or "SCHEDULED",
+  "scheduledAt": "ISO 8601 string only if SCHEDULED",
+  "durationMinutes": number,
+  "participants": [{"name": "", "email": ""}],
+  "location": ""
+}
+Today: ${new Date().toISOString()}. Default duration 30 min. Use INSTANT if no date/time mentioned.`;
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          temperature: 0.2,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: aiMessage },
+          ],
+          response_format: { type: 'json_object' },
+        }),
       });
-      
-      // Race between the actual request and the timeout
-      const meetingDraft = await Promise.race([
-        generateMeetingDraft(aiMessage),
-        timeoutPromise
-      ]);
-      
-      // Convert API response to UI model
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any)?.error?.message || `OpenAI error ${res.status}`);
+      }
+
+      const json = await res.json();
+      const draft = JSON.parse(json.choices[0].message.content);
+
       const parsedDetails: MeetingDetails = {
-        title: meetingDraft.title,
-        // Convert API meeting type to UI type (lowercase)
-        type: meetingDraft.meetingType.toLowerCase() as UiMeetingType,
-        duration: meetingDraft.durationMinutes,
-        // Convert participants from objects to strings for the UI
-        participants: meetingDraft.participants?.map(p => p.name || p.email || "").filter(Boolean) || [],
-        location: meetingDraft.location
+        title: draft.title || '',
+        type: draft.meetingType === 'SCHEDULED' ? 'scheduled' : 'instant',
+        duration: Math.min(Math.max(draft.durationMinutes || 30, 15), 60),
+        participants: (draft.participants || []).map((p: any) => p.email || p.name || '').filter(Boolean),
+        location: draft.location || undefined,
       };
-      
-      // Handle scheduled meeting date/time
-      if (meetingDraft.scheduledAt && parsedDetails.type === "scheduled") {
-        const scheduledDate = new Date(meetingDraft.scheduledAt);
-        parsedDetails.date = scheduledDate;
-        parsedDetails.time = format(scheduledDate, "HH:mm");
+
+      if (draft.scheduledAt && parsedDetails.type === 'scheduled') {
+        const d = new Date(draft.scheduledAt);
+        parsedDetails.date = d;
+        parsedDetails.time = format(d, 'HH:mm');
       }
-      
-      // Make sure we don't exceed 60 minutes (free plan limit)
-      if (parsedDetails.duration > 60) {
-        parsedDetails.duration = 60;
-      }
-      
+
       setMeetingDetails(parsedDetails);
       setShowConfirmation(true);
-    } catch (err) {
-      console.error('AI assistant error:', err);
-      setApiError(err instanceof Error && err.message === 'AI assistant request timed out' 
-        ? 'The AI assistant is taking too long to respond. Please try again or use the manual form.'
-        : 'Unable to process your request with AI assistant. Please try again or use the manual form.');
+    } catch (err: any) {
+      console.error('AI error:', err);
+      setApiError(err.message || 'Unable to process your request. Please try manual mode.');
       toast({
-        title: "AI Assistant Error",
-        description: err instanceof Error && err.message === 'AI assistant request timed out' 
-          ? "Request timed out. Try using manual mode instead."
-          : "Could not generate meeting details. Try using manual mode instead.",
-        variant: "destructive"
+        title: 'AI Error',
+        description: err.message || 'Could not generate meeting. Try manual mode.',
+        variant: 'destructive',
       });
     } finally {
-      if (requestTimeout) clearTimeout(requestTimeout);
       setIsLoading(false);
       setAiProcessing(false);
     }
