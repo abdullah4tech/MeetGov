@@ -1,28 +1,25 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { getCurrentUser } from "@/lib/api/user";
 import { AlertCircle, Loader2, Users, User, ArrowRight, Video } from "lucide-react";
 
 // ─── Role metadata storage ────────────────────────────────────────────────────
-// We store the intended role in localStorage BEFORE Clerk opens the OAuth flow.
-// Google OAuth does a full redirect so query params are lost — localStorage survives.
+// Stored in localStorage BEFORE Clerk opens the OAuth flow so it survives
+// the Google OAuth full-page redirect.
 const ROLE_KEY = "meetgov:signin_role";
 
 export function storeSignInRole(role: "personal" | "enterprise") {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(ROLE_KEY, role);
-  }
+  if (typeof window !== "undefined") localStorage.setItem(ROLE_KEY, role);
 }
 
 export function consumeSignInRole(): "personal" | "enterprise" | null {
   if (typeof window === "undefined") return null;
   const role = localStorage.getItem(ROLE_KEY) as "personal" | "enterprise" | null;
-  if (role) localStorage.removeItem(ROLE_KEY); // consume once
+  if (role) localStorage.removeItem(ROLE_KEY);
   return role;
 }
 
@@ -32,71 +29,54 @@ function SignInContent() {
   const searchParams = useSearchParams();
   const { user, isLoaded } = useUser();
   const { openSignIn } = useClerk();
-  const [isRedirecting, setIsRedirecting] = useState(false);
   const [loadingRole, setLoadingRole] = useState<"personal" | "enterprise" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Ref prevents the redirect from firing more than once
+  const redirected = useRef(false);
 
-  // ?type=personal|enterprise lets us deep-link directly to a role
-  const urlType = searchParams.get("type") as "personal" | "enterprise" | null;
   const callbackError = searchParams.get("error");
 
   useEffect(() => {
     if (callbackError) setError("Authentication failed. Please try again.");
   }, [callbackError]);
 
-  // If already signed in, route to correct dashboard
+  // ── Already signed in? Route immediately — NO backend call needed ──────────
+  // Role-specific routing (enterprise vs personal) happens in /auth/callback.
+  // The sign-in page just needs to get the user OUT to avoid the loop.
   useEffect(() => {
-    const handlePostLogin = async () => {
-      if (user && !isRedirecting) {
-        setIsRedirecting(true);
-        try {
-          const userInfo = await getCurrentUser();
-          if (userInfo.userType === "enterprise") {
-            router.push(userInfo.enterprise ? "/dashboard/enterprise" : "/onboarding/enterprise");
-          } else {
-            router.push("/dashboard");
-          }
-        } catch {
-          setIsRedirecting(false);
-        }
-      }
-    };
-    if (isLoaded) handlePostLogin();
-  }, [user, isLoaded, router, isRedirecting]);
+    if (!isLoaded || !user || redirected.current) return;
+    redirected.current = true;
 
-  // If URL has a type query param, auto-open the modal for that role
-  useEffect(() => {
-    if (isLoaded && !user && urlType) {
-      openClerkModal(urlType);
+    // Read intended role from localStorage (set before OAuth)
+    const role = consumeSignInRole();
+
+    if (role === "enterprise") {
+      router.replace("/onboarding/enterprise");
+    } else {
+      router.replace("/dashboard");
     }
-    // only run once when Clerk is ready
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded]);
+  }, [user, isLoaded, router]);
 
   const openClerkModal = (role: "personal" | "enterprise") => {
     setLoadingRole(role);
-    // 1. Store the role — survives the Google OAuth redirect
     storeSignInRole(role);
 
-    // 2. After OAuth, Clerk redirects to afterSignInUrl.
-    //    We pass the role in the URL so the callback page can read it immediately.
-    const afterSignInUrl = `${window.location.origin}/auth/callback?type=${role}`;
-    const afterSignUpUrl = `${window.location.origin}/auth/callback?type=${role}&new=true`;
-
+    // afterSignInUrl carries the role through the OAuth redirect
     openSignIn({
-      afterSignInUrl,
-      afterSignUpUrl,
+      afterSignInUrl: `${window.location.origin}/auth/callback?type=${role}`,
+      afterSignUpUrl: `${window.location.origin}/auth/callback?type=${role}&new=true`,
     });
 
     setLoadingRole(null);
   };
 
-  if (!isLoaded || isRedirecting) {
+  // Show spinner while Clerk is checking session or performing redirect
+  if (!isLoaded || (isLoaded && user)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
-          <p className="text-slate-400">{isRedirecting ? "Redirecting..." : "Loading..."}</p>
+          <p className="text-slate-400">{user ? "Redirecting..." : "Loading..."}</p>
         </div>
       </div>
     );
@@ -117,9 +97,7 @@ function SignInContent() {
             <Video className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Welcome to MeetAssist</h1>
-          <p className="mt-2 text-slate-400 text-base">
-            Choose how you'd like to continue
-          </p>
+          <p className="mt-2 text-slate-400 text-base">Choose how you'd like to continue</p>
         </div>
 
         {error && (
@@ -129,7 +107,6 @@ function SignInContent() {
           </Alert>
         )}
 
-        {/* Three sign-in paths */}
         <div className="space-y-3">
           {/* Guest */}
           <button
