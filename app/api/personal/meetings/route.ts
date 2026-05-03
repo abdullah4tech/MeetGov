@@ -107,20 +107,35 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const meetings = await prisma.meeting.findMany({
-      where: { ownerId: userId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, Number(searchParams.get("page") ?? "1"));
+    const pageSize = Math.min(50, Math.max(1, Number(searchParams.get("pageSize") ?? "10")));
 
-    return NextResponse.json({ meetings });
+    const [meetings, total] = await Promise.all([
+      prisma.meeting.findMany({
+        where: { ownerId: userId },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { participants: true },
+      }),
+      prisma.meeting.count({ where: { ownerId: userId } }),
+    ]);
+
+    return NextResponse.json({
+      meetings,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    });
   } catch (error: any) {
     console.error("[GET /api/personal/meetings]", error);
     return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
